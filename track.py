@@ -1,5 +1,5 @@
 import argparse
-
+import json 
 import os
 # limit the number of cpus used by high performance libraries
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -122,6 +122,13 @@ def run(
 
     # Create as many strong sort instances as there are video sources
     strongsort_list = []
+    print("STRONG SORT CFG max_dist: ", cfg.STRONGSORT.MAX_DIST)
+    print("STRONG SORT CFG max_iou_distance: ", cfg.STRONGSORT.MAX_IOU_DISTANCE)
+    print("STRONG SORT CFG max_age: ", cfg.STRONGSORT.MAX_AGE)
+    print("STRONG SORT CFG n_init: ", cfg.STRONGSORT.N_INIT)
+    print("STRONG SORT CFG nn_budget: ", cfg.STRONGSORT.NN_BUDGET)
+    print("STRONG SORT CFG mc_lambda: ", cfg.STRONGSORT.MC_LAMBDA)
+    print("STRONG SORT CFG ema_alpha: ", cfg.STRONGSORT.EMA_ALPHA)
     for i in range(nr_sources):
         strongsort_list.append(
             StrongSORT(
@@ -146,6 +153,7 @@ def run(
     # Run tracking
     dt, seen = [0.0, 0.0, 0.0, 0.0], 0
     curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
+    trajectories = {}
     for frame_idx, (path, im, im0s, vid_cap) in enumerate(dataset):
         s = ''
         t1 = time_synchronized()
@@ -231,8 +239,19 @@ def run(
                             bbox_w = output[2] - output[0]
                             bbox_h = output[3] - output[1]
                             # Write MOT compliant results to file
+                            if int(id) not in trajectories:
+                                trajectories[int(id)] = []
+                            screen_position = {
+                                "frameNumber": frame_idx + 1,
+                                "left": bbox_left,
+                                "top": bbox_top,
+                                "width": bbox_w,
+                                "height": bbox_h,
+                                "detected_type": int(cls)
+                            }
+                            trajectories[int(id)].append(screen_position)
                             with open(txt_path + '.txt', 'a') as f:
-                                f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
+                                f.write(('%g ' * 11 + '\n') % (frame_idx + 1, id, int(cls), bbox_left,  # MOT format
                                                                bbox_top, bbox_w, bbox_h, -1, -1, -1, i))
 
                         if save_vid or save_crop or show_vid:  # Add bbox to image
@@ -274,6 +293,9 @@ def run(
 
             prev_frames[i] = curr_frames[i]
 
+    with open(txt_path + '.json', 'w') as f:
+        json.dump(trajectories, f)
+        print(f"Saved trajectories [{len(trajectories)}] to {txt_path}.json")
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
     print(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS, %.1fms strong sort update per image at shape {(1, 3, imgsz, imgsz)}' % t)
